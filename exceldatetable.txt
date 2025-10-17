@@ -1,0 +1,23 @@
+let
+    // Grenzen dynamisch aus den Rohdaten holen:
+    MinDate = Date.From(List.Min(Table.Column(Rohdaten, "Datum"))),
+    MaxDate = Date.From(List.Max(Table.Column(Rohdaten, "Datum"))),
+    // Sicherheits-Puffer:
+    Start   = Date.StartOfMonth(Date.AddMonths(MinDate, -1)),
+    End     = Date.EndOfMonth(Date.AddMonths(MaxDate, 1)),
+    AnzahlTage = Duration.Days(End - Start) + 1,
+    Liste   = List.Dates(Start, AnzahlTage, #duration(1,0,0,0)),
+    Tbl     = Table.FromList(Liste, Splitter.SplitByNothing(), {"Datum"}, null, ExtraValues.Error),
+    MitTyp  = Table.TransformColumnTypes(Tbl, {{"Datum", type date}}),
+    Ergänzt = Table.TransformColumns(MitTyp, {}),
+
+    // Zusatzspalten:
+    Jahr        = Table.AddColumn(Ergänzt, "Jahr", each Date.Year([Datum]), Int64.Type),
+    MonatNr     = Table.AddColumn(Jahr, "MonatNr", each Date.Month([Datum]), Int64.Type),
+    MonatName   = Table.AddColumn(MonatNr, "Monat", each Date.ToText([Datum], "MMMM", "de-DE"), type text),
+    JahrMonat   = Table.AddColumn(MonatName, "JahrMonat", each Number.ToText([Jahr]) & "-" & Text.PadStart(Number.ToText([MonatNr]),2,"0"), type text),
+    Quartal     = Table.AddColumn(JahrMonat, "Quartal", each "Q" & Number.ToText(Date.QuarterOfYear([Datum])), type text),
+    KW          = Table.AddColumn(Quartal, "Kalenderwoche", each Date.WeekOfYear([Datum], Day.Monday), Int64.Type),
+    Final       = Table.TransformColumnTypes(KW, {{"Monat", type text},{"JahrMonat", type text},{"Quartal", type text}})
+in
+    Final
