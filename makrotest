@@ -1,33 +1,74 @@
 Option Explicit
 
-' === KONFIG ===
+' ==== KONFIG ====
 Private Const PIVOT_NAME As String = "ELV Erlöse"
+' Falls Umsatz als T€ nur angezeigt werden soll (ohne /1000 im Quellfeld),
+' kannst du unten im NumberFormat statt "#.##0" -> "#.##0"" T€""" setzen.
 
-' === HILFE: Pivot holen ===
+' ==== PIVOT HOLEN ====
 Private Function GetPivot() As PivotTable
     Set GetPivot = ActiveSheet.PivotTables(PIVOT_NAME)
 End Function
 
-' === HILFE: Prüfen, ob ein Datenfeld (Measure) schon in WERTE ist ===
-Private Function HasDataField(pt As PivotTable, caption As String) As Boolean
+' ==== HILFE: DataField nach Caption oder SourceName suchen ====
+Private Function FindDataField(pt As PivotTable, ByVal captionOrSource As String) As PivotField
     Dim df As PivotField
-    On Error Resume Next
-    Set df = pt.DataFields(caption)
-    HasDataField = Not df Is Nothing
-    On Error GoTo 0
+    ' 1) nach Caption suchen
+    For Each df In pt.DataFields
+        If StrComp(df.Caption, captionOrSource, vbTextCompare) = 0 Then
+            Set FindDataField = df
+            Exit Function
+        End If
+    Next df
+    ' 2) nach SourceName suchen
+    For Each df In pt.DataFields
+        If StrComp(df.SourceName, captionOrSource, vbTextCompare) = 0 Then
+            Set FindDataField = df
+            Exit Function
+        End If
+    Next df
 End Function
 
-' === HILFE: Zahlenformat passend setzen ===
-Private Sub ApplyNumberFormat(pt As PivotTable, caption As String)
-    Dim df As PivotField
-    On Error Resume Next
-    Set df = pt.DataFields(caption)
-    On Error GoTo 0
-    If df Is Nothing Then Exit Sub
+' ==== HILFE: sicherstellen, dass ein Feld in WERTE liegt, ggf. hinzufügen ====
+Private Function EnsureDataField(pt As PivotTable, ByVal sourceFieldName As String, _
+                                 ByVal desiredCaption As String, _
+                                 ByVal agg As XlConsolidationFunction) As PivotField
+    Dim df As PivotField, pf As PivotField
 
-    Select Case LCase$(caption)
+    Set df = FindDataField(pt, desiredCaption)
+    If df Is Nothing Then Set df = FindDataField(pt, sourceFieldName)
+    If Not df Is Nothing Then
+        ' schon vorhanden -> Caption/Format/Aggregat setzen
+        On Error Resume Next
+        df.Function = agg
+        df.Caption = desiredCaption
+        On Error GoTo 0
+        Set EnsureDataField = df
+        Exit Function
+    End If
+
+    ' sonst aus den PivotFields hinzufügen
+    On Error Resume Next
+    Set pf = pt.PivotFields(sourceFieldName)
+    On Error GoTo 0
+    If Not pf Is Nothing Then
+        pf.Orientation = xlDataField
+        On Error Resume Next
+        pf.Function = agg
+        pf.Caption = desiredCaption               ' „Summe von …“ -> „Umsatz“ etc.
+        On Error GoTo 0
+        Set EnsureDataField = pf
+    Else
+        Set EnsureDataField = Nothing             ' Quellfeld existiert nicht
+    End If
+End Function
+
+' ==== FORMAT je Feld ====
+Private Sub ApplyNumberFormat(ByVal df As PivotField)
+    If df Is Nothing Then Exit Sub
+    Select Case LCase$(df.Caption)
         Case LCase$("Umsatz")
-            df.NumberFormat = "#.##0"                 ' wenn Anzeige-T€ gewünscht: df.NumberFormat = "#.##0"" T€"""
+            df.NumberFormat = "#.##0"                 ' alternativ: "#.##0"" T€"""
         Case LCase$("Δ €")
             df.NumberFormat = "+#.##0;-#.##0;"        ' Null unsichtbar
         Case LCase$("Δ %")
@@ -39,164 +80,136 @@ Private Sub ApplyNumberFormat(pt As PivotTable, caption As String)
     End Select
 End Sub
 
-' === KERNE: Measure in WERTE hinzufügen / entfernen ===
-Private Sub AddMeasure(ByVal caption As String)
-    Dim pt As PivotTable: Set pt = GetPivot()
-    pt.ManualUpdate = True
-
-    If pt.OLAP Then
-        ' OLAP/Data-Model: erst direkter Versuch über UniqueName [Measures].[Caption],
-        ' fällt zurück auf Suche per Caption
-        Dim pf As PivotField
-        On Error Resume Next
-        Set pf = pt.CubeFields("[Measures].[" & caption & "]").AddToDataField
-        On Error GoTo 0
-        If pf Is Nothing Then
-            Dim cf As Object
-            For Each cf In pt.CubeFields
-                On Error Resume Next
-                If cf.CubeFieldType = 2 Then ' 2 = xlMeasure
-                    If StrComp(cf.Caption, caption, vbTextCompare) = 0 Then
-                        Set pf = cf.AddToDataField
-                        Exit For
-                    End If
-                End If
-                On Error GoTo 0
-            Next cf
-        End If
-    Else
-        ' klassische Pivot
-        Dim src As PivotField
-        On Error Resume Next
-        Set src = pt.PivotFields(caption)
-        If Not src Is Nothing Then src.Orientation = xlDataField
-        On Error GoTo 0
-    End If
-
-    ApplyNumberFormat pt, caption
-    pt.ManualUpdate = False
-    On Error Resume Next
-    pt.TableRange1.Columns.AutoFit
-    On Error GoTo 0
-End Sub
-
-Private Sub RemoveMeasure(ByVal caption As String)
-    Dim pt As PivotTable: Set pt = GetPivot()
-    Dim df As PivotField
-    pt.ManualUpdate = True
-    On Error Resume Next
-    Set df = pt.DataFields(caption)
-    If Not df Is Nothing Then df.Orientation = xlHidden
-    On Error GoTo 0
-    pt.ManualUpdate = False
-End Sub
-
-Private Sub Reorder(ByVal orderArr As Variant)
-    Dim pt As PivotTable: Set pt = GetPivot()
+' ==== REIHENFOLGE DER WERTEFELDER ====
+Private Sub ReorderValues(pt As PivotTable, orderArr As Variant)
     Dim i As Long, df As PivotField
     For i = LBound(orderArr) To UBound(orderArr)
-        On Error Resume Next
-        Set df = pt.DataFields(CStr(orderArr(i)))
+        Set df = FindDataField(pt, CStr(orderArr(i)))
         If Not df Is Nothing Then df.Position = i + 1
-        On Error GoTo 0
     Next i
 End Sub
 
-' === TOGGLES ===
+' ==== EINZEL-TOGGLES ====
 Public Sub Toggle_Umsatz()
     Dim pt As PivotTable: Set pt = GetPivot()
-    If HasDataField(pt, "Umsatz") Then
-        RemoveMeasure "Umsatz"
+    Dim df As PivotField
+    pt.ManualUpdate = True
+    Set df = FindDataField(pt, "Umsatz")
+    If Not df Is Nothing Then
+        df.Orientation = xlHidden
     Else
-        AddMeasure "Umsatz"
+        Set df = EnsureDataField(pt, "Umsatz", "Umsatz", xlSum)
+        ApplyNumberFormat df
     End If
+    pt.ManualUpdate = False
+    pt.TableRange1.Columns.AutoFit
 End Sub
 
 Public Sub Toggle_Menge()
     Dim pt As PivotTable: Set pt = GetPivot()
-    If HasDataField(pt, "Menge") Then
-        RemoveMeasure "Menge"
+    Dim df As PivotField
+    pt.ManualUpdate = True
+    Set df = FindDataField(pt, "Menge")
+    If Not df Is Nothing Then
+        df.Orientation = xlHidden
     Else
-        AddMeasure "Menge"
+        Set df = EnsureDataField(pt, "Menge", "Menge", xlSum)
+        ApplyNumberFormat df
     End If
+    pt.ManualUpdate = False
+    pt.TableRange1.Columns.AutoFit
 End Sub
 
 Public Sub Toggle_DeltaEuro()
     Dim pt As PivotTable: Set pt = GetPivot()
-    If HasDataField(pt, "Δ €") Then
-        RemoveMeasure "Δ €"
+    Dim df As PivotField
+    pt.ManualUpdate = True
+    Set df = FindDataField(pt, "Δ €")
+    If Not df Is Nothing Then
+        df.Orientation = xlHidden
     Else
-        AddMeasure "Δ €"
+        Set df = EnsureDataField(pt, "Δ €", "Δ €", xlSum)
+        ApplyNumberFormat df
     End If
+    pt.ManualUpdate = False
+    pt.TableRange1.Columns.AutoFit
 End Sub
 
 Public Sub Toggle_DeltaPct()
     Dim pt As PivotTable: Set pt = GetPivot()
-    If HasDataField(pt, "Δ %") Then
-        RemoveMeasure "Δ %"
+    Dim df As PivotField
+    pt.ManualUpdate = True
+    Set df = FindDataField(pt, "Δ %")
+    If Not df Is Nothing Then
+        df.Orientation = xlHidden
     Else
-        AddMeasure "Δ %"
+        ' % i. d. R. als Mittelwert sinnvoller
+        Set df = EnsureDataField(pt, "Δ %", "Δ %", xlAverage)
+        ApplyNumberFormat df
     End If
+    pt.ManualUpdate = False
+    pt.TableRange1.Columns.AutoFit
 End Sub
 
 Public Sub Toggle_DeltaMenge()
     Dim pt As PivotTable: Set pt = GetPivot()
-    If HasDataField(pt, "ΔMenge") Then
-        RemoveMeasure "ΔMenge"
+    Dim df As PivotField
+    pt.ManualUpdate = True
+    Set df = FindDataField(pt, "ΔMenge")
+    If Not df Is Nothing Then
+        df.Orientation = xlHidden
     Else
-        AddMeasure "ΔMenge"
+        Set df = EnsureDataField(pt, "ΔMenge", "ΔMenge", xlSum)
+        ApplyNumberFormat df
     End If
+    pt.ManualUpdate = False
+    pt.TableRange1.Columns.AutoFit
 End Sub
 
-' === PRESETS ===
+' ==== PRESETS ====
 Public Sub Show_Only_Umsatz()
     Dim pt As PivotTable: Set pt = GetPivot()
     Dim df As PivotField
     pt.ManualUpdate = True
-    For Each df In pt.DataFields
-        df.Orientation = xlHidden
-    Next df
+    For Each df In pt.DataFields: df.Orientation = xlHidden: Next
+    Set df = EnsureDataField(pt, "Umsatz", "Umsatz", xlSum)
+    ApplyNumberFormat df
+    ReorderValues pt, Array("Umsatz")
     pt.ManualUpdate = False
-    AddMeasure "Umsatz"
-    Reorder Array("Umsatz")
+    pt.TableRange1.Columns.AutoFit
 End Sub
 
 Public Sub Show_Umsatz_und_DeltaEuro()
     Dim pt As PivotTable: Set pt = GetPivot()
     Dim df As PivotField
     pt.ManualUpdate = True
-    For Each df In pt.DataFields
-        df.Orientation = xlHidden
-    Next df
+    For Each df In pt.DataFields: df.Orientation = xlHidden: Next
+    ApplyNumberFormat EnsureDataField(pt, "Umsatz", "Umsatz", xlSum)
+    ApplyNumberFormat EnsureDataField(pt, "Δ €",  "Δ €",  xlSum)
+    ReorderValues pt, Array("Umsatz", "Δ €")
     pt.ManualUpdate = False
-    AddMeasure "Umsatz"
-    AddMeasure "Δ €"
-    Reorder Array("Umsatz", "Δ €")
+    pt.TableRange1.Columns.AutoFit
 End Sub
 
 Public Sub Show_All()
-    Dim arr
-    arr = Array("Umsatz", "Δ €", "Δ %", "Menge", "ΔMenge")
-    Dim i As Long
     Dim pt As PivotTable: Set pt = GetPivot()
     Dim df As PivotField
     pt.ManualUpdate = True
-    For Each df In pt.DataFields
-        df.Orientation = xlHidden
-    Next df
+    For Each df In pt.DataFields: df.Orientation = xlHidden: Next
+    ApplyNumberFormat EnsureDataField(pt, "Umsatz",  "Umsatz",  xlSum)
+    ApplyNumberFormat EnsureDataField(pt, "Δ €",     "Δ €",     xlSum)
+    ApplyNumberFormat EnsureDataField(pt, "Δ %",     "Δ %",     xlAverage)
+    ApplyNumberFormat EnsureDataField(pt, "Menge",   "Menge",   xlSum)
+    ApplyNumberFormat EnsureDataField(pt, "ΔMenge",  "ΔMenge",  xlSum)
+    ReorderValues pt, Array("Umsatz", "Δ €", "Δ %", "Menge", "ΔMenge")
     pt.ManualUpdate = False
-    For i = LBound(arr) To UBound(arr)
-        AddMeasure CStr(arr(i))
-    Next i
-    Reorder arr
+    pt.TableRange1.Columns.AutoFit
 End Sub
 
 Public Sub Hide_All()
     Dim pt As PivotTable: Set pt = GetPivot()
     Dim df As PivotField
     pt.ManualUpdate = True
-    For Each df In pt.DataFields
-        df.Orientation = xlHidden
-    Next df
+    For Each df In pt.DataFields: df.Orientation = xlHidden: Next
     pt.ManualUpdate = False
 End Sub
