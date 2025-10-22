@@ -1,0 +1,31 @@
+Option Explicit
+Private Const PIVOT_NAME As String = "ELV Erlöse"
+
+Public Sub Pivot_ListAllFields()
+    Dim ws As Worksheet, pt As PivotTable, pf As PivotField, out As Worksheet, r As Long
+    Set pt = Nothing
+    For Each ws In ActiveWorkbook.Worksheets
+        On Error Resume Next
+        Set pt = ws.PivotTables(PIVOT_NAME)
+        On Error GoTo 0
+        If Not pt Is Nothing Then Exit For
+    Next ws
+    If pt Is Nothing Then
+        MsgBox "Pivot '" & PIVOT_NAME & "' nicht gefunden.", vbExclamation: Exit Sub
+    End If
+
+    Set out = Worksheets.Add
+    out.Name = "PivotFields_" & Format(Now, "hhmmss")
+    out.[A1:D1].Value = Array("Caption", "SourceName", "Orientation", "IsDataField")
+    r = 2
+    For Each pf In pt.PivotFields
+        out.Cells(r, 1).Value = pf.Caption
+        out.Cells(r, 2).Value = pf.SourceName
+        out.Cells(r, 3).Value = pf.Orientation
+        out.Cells(r, 4).Value = (pf.Orientation = xlDataField)
+        r = r + 1
+    Next pf
+    out.Columns("A:D").AutoFit
+    MsgBox "Fertig. Sieh im Blatt '" & out.Name & "' nach." & vbCrLf & _
+           "Notiere dir die SourceName(s) deiner gewünschten Wertefelder (z.B. die Spaltennamen, die 'Umsatz', 'Menge', 'Δ €', 'Δ %', 'ΔMenge' liefern)."
+End Sub
