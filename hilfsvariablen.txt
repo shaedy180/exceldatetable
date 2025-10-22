@@ -1,24 +1,21 @@
--- Hilfs-Variablen-Pattern (nutzen wir in jedem Show-Measure gleich):
--- sel = aktuelle Auswahl des Slicers (als kleine In-Memory-Tabelle)
--- isAusOnly = "Aus" ist alleine gewählt (zählt als globales Aus)
+-- Δ € anzeigen, wenn im Slicer "Δ Umsatz" gewählt ist.
+-- Sonderfall: Wenn NUR "Keine" gewählt ist, bleibt es leer.
+[Δ € Show] :=
+VAR sel        = VALUES('DeltaToggle'[Auswahl])
+VAR isKeineOnly= COUNTROWS(sel) = 1 && NOT ISEMPTY(FILTER(sel; 'DeltaToggle'[Auswahl] = "Keine"))
+VAR hasDelta€  = NOT ISEMPTY(FILTER(sel; 'DeltaToggle'[Auswahl] = "Δ Umsatz"))
+RETURN IF( NOT isKeineOnly && hasDelta€; [Δ €]; BLANK() )
 
--- Δ € (T€) zeigen, wenn "Δ €" selektiert ist und nicht "Aus" allein
-[Δ € (T€) Show] :=
-VAR sel       = VALUES(tblDeltaSelect[Delta])
-VAR isAusOnly = COUNTROWS(sel) = 1 && NOT ISEMPTY(FILTER(sel; tblDeltaSelect[Delta] = "Aus"))
-VAR hasEUR    = NOT ISEMPTY(FILTER(sel; tblDeltaSelect[Delta] = "Δ €"))
-RETURN IF( NOT isAusOnly && hasEUR; [Δ € (T€)]; BLANK() )
-
--- Δ % zeigen, wenn "Δ %" selektiert ist (und nicht "Aus" allein)
+-- Δ % anzeigen, wenn im Slicer "Δ Umsatz in %" gewählt ist.
 [Δ % Show] :=
-VAR sel       = VALUES(tblDeltaSelect[Delta])
-VAR isAusOnly = COUNTROWS(sel) = 1 && NOT ISEMPTY(FILTER(sel; tblDeltaSelect[Delta] = "Aus"))
-VAR hasPct    = NOT ISEMPTY(FILTER(sel; tblDeltaSelect[Delta] = "Δ %"))
-RETURN IF( NOT isAusOnly && hasPct; [Δ %]; BLANK() )
+VAR sel         = VALUES('DeltaToggle'[Auswahl])
+VAR isKeineOnly = COUNTROWS(sel) = 1 && NOT ISEMPTY(FILTER(sel; 'DeltaToggle'[Auswahl] = "Keine"))
+VAR hasDeltaPct = NOT ISEMPTY(FILTER(sel; 'DeltaToggle'[Auswahl] = "Δ Umsatz in %"))
+RETURN IF( NOT isKeineOnly && hasDeltaPct; [Δ %]; BLANK() )
 
--- Δ Menge zeigen, wenn "Δ Menge" selektiert ist (und nicht "Aus" allein)
-[Δ Menge Show] :=
-VAR sel       = VALUES(tblDeltaSelect[Delta])
-VAR isAusOnly = COUNTROWS(sel) = 1 && NOT ISEMPTY(FILTER(sel; tblDeltaSelect[Delta] = "Aus"))
-VAR hasQty    = NOT ISEMPTY(FILTER(sel; tblDeltaSelect[Delta] = "Δ Menge"))
-RETURN IF( NOT isAusOnly && hasQty; [Δ Menge]; BLANK() )
+-- ΔMenge anzeigen, wenn im Slicer "Δ Menge" gewählt ist.
+[ΔMenge Show] :=
+VAR sel          = VALUES('DeltaToggle'[Auswahl])
+VAR isKeineOnly  = COUNTROWS(sel) = 1 && NOT ISEMPTY(FILTER(sel; 'DeltaToggle'[Auswahl] = "Keine"))
+VAR hasDeltaQty  = NOT ISEMPTY(FILTER(sel; 'DeltaToggle'[Auswahl] = "Δ Menge"))
+RETURN IF( NOT isKeineOnly && hasDeltaQty; [ΔMenge]; BLANK() )
